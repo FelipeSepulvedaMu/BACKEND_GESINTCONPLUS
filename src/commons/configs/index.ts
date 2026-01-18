@@ -1,6 +1,4 @@
-
 export const CONFIG = {
-  PORT: 3001,
-  DB_PATH: './src/commons/database/database.json',
-  API_PREFIX: '/api'
+  PORT: Number(process.env.PORT) || 3002,
+  API_PREFIX: process.env.API_PREFIX || '/api'
 };
