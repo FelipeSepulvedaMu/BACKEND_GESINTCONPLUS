@@ -3,7 +3,7 @@ import path from 'path';
 
 // Cargar .env antes que cualquier otra cosa
 // Fix: Property 'cwd' does not exist on type 'Process'. Use path.resolve('.env') which defaults to the current working directory.
-dotenv.config({ path: path.resolve('.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 import app from './app';
 import { CONFIG } from './commons/configs';
