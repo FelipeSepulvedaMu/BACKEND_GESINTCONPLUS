@@ -10,7 +10,10 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// --- AYUDANTES DE MAPEO ---
+const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+// --- AYUDANTES DE MAPEO (BASE DE DATOS -> FRONTEND) ---
+
 const mapPaymentFromDB = (p: any) => ({
   id: p.id,
   houseId: String(p.house_id || p.houseId || ''),
@@ -56,7 +59,7 @@ const mapMeetingToDB = (m: any) => ({
   created_by: m.createdBy,
   updated_by: m.updatedBy,
   created_at: m.createdAt,
-  updated_at: m.updatedAt
+  updated_at: m.updated_at
 });
 
 const mapEmployeeFromDB = (e: any) => ({
@@ -103,9 +106,8 @@ const mapExpenseFromDB = (e: any) => ({
   category: e.category || 'General'
 });
 
-const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-
 // --- CONTROLADOR PRINCIPAL ---
+
 export const ReportsController = {
   // PAGOS
   getPayments: async (req: any, res: any) => {
@@ -122,12 +124,13 @@ export const ReportsController = {
     try {
       const { shouldSendEmail, targetEmail, houseNumber, ...paymentData } = req.body;
       const dbPayload = mapPaymentToDB(paymentData);
-
+      
       const { data, error } = await supabase.from('payments').insert([dbPayload]).select();
       if (error) throw error;
-
+      
       const savedPayment = data ? mapPaymentFromDB(data[0]) : null;
 
+      // Lógica de envío de correo SMTP (Solo si se solicita y hay credenciales)
       if (shouldSendEmail && targetEmail && savedPayment && process.env.EMAIL_USER) {
         const breakdownText = savedPayment.breakdown
           .map((item: any) => ` - ${item.name.toUpperCase()}: $${Number(item.amount).toLocaleString()}`)
@@ -137,10 +140,10 @@ export const ReportsController = {
           from: `"Administración CondoMaster" <${process.env.EMAIL_USER}>`,
           to: targetEmail,
           subject: `Comprobante Casa ${houseNumber || ''} - Folio #${savedPayment.voucherId}`,
-          text: `Estimado(a) ${savedPayment.payerName},\n\nSe ha registrado exitosamente su pago correspondiente al periodo de ${MONTH_NAMES[savedPayment.month]} ${savedPayment.year}.\n\nDETALLES DE LA TRANSACCIÓN:\nFolio: #${savedPayment.voucherId}\nFecha: ${savedPayment.date}\nMonto Total: $${savedPayment.amount.toLocaleString()}\n\nDESGLOSE:\n${breakdownText}\n\nEste es un correo automático, por favor no responder.\nAtentamente, Administración.`
+          text: `Estimado(a) ${savedPayment.payerName},\n\nSe ha registrado su pago periodo ${MONTH_NAMES[savedPayment.month]} ${savedPayment.year}.\n\nFolio: #${savedPayment.voucherId}\nTotal: $${savedPayment.amount.toLocaleString()}\n\nDetalle desglosado:\n${breakdownText}\n\nGracias por su compromiso.\nAtentamente,\nCondoMaster ERP Cloud.`
         };
 
-        transporter.sendMail(mailOptions).catch(err => console.error("❌ Error enviando email SMTP:", err));
+        transporter.sendMail(mailOptions).catch(e => console.error("❌ Error SMTP:", e));
       }
 
       res.json(savedPayment);
@@ -274,7 +277,7 @@ export const ReportsController = {
     }
   },
 
-  // VACACIONES
+  // VACACIONES (TABLA vacation_requests)
   getVacations: async (req: any, res: any) => {
     try {
       const { data, error } = await supabase.from('vacation_requests').select('*').order('start_date', { ascending: false });
@@ -313,7 +316,7 @@ export const ReportsController = {
     }
   },
 
-  // LICENCIAS
+  // LICENCIAS (TABLA medical_leaves)
   getLeaves: async (req: any, res: any) => {
     try {
       const { data, error } = await supabase.from('medical_leaves').select('*').order('start_date', { ascending: false });
@@ -352,12 +355,14 @@ export const ReportsController = {
     }
   },
 
-  // TURNOS
+  // TURNOS (TABLA shift_schedules)
   getShifts: async (req: any, res: any) => {
     try {
       const { startDate } = req.query;
       let query = supabase.from('shift_schedules').select('*');
-      if (startDate) query = query.eq('start_date', startDate);
+      if (startDate) {
+        query = query.eq('start_date', startDate);
+      }
       const { data, error } = await query.maybeSingle();
       if (error) throw error;
       res.json(data ? data.assignments : {});
@@ -369,34 +374,48 @@ export const ReportsController = {
   saveShifts: async (req: any, res: any) => {
     try {
       const { startDate, assignments } = req.body;
+      
+      // Buscamos si ya existe una planificación para esa fecha específica
       const { data: existing, error: findError } = await supabase
         .from('shift_schedules')
         .select('id')
         .eq('start_date', startDate)
         .maybeSingle();
-
+      
       if (findError) throw findError;
 
       let result;
       if (existing) {
-        result = await supabase.from('shift_schedules').update({ assignments }).eq('id', existing.id).select();
+        // Actualizamos la quincena existente
+        result = await supabase
+          .from('shift_schedules')
+          .update({ assignments })
+          .eq('id', existing.id)
+          .select();
       } else {
-        result = await supabase.from('shift_schedules').insert([{ start_date: startDate, assignments }]).select();
+        // Creamos una nueva planificación para este periodo
+        result = await supabase
+          .from('shift_schedules')
+          .insert([{ start_date: startDate, assignments }])
+          .select();
       }
 
       if (result.error) throw result.error;
       res.json({ success: true });
     } catch (err: any) {
+      console.error('❌ Error guardando turnos:', err.message);
       res.status(500).json({ error: err.message });
     }
   },
 
-  // LOGS
+  // LOGS (TABLA action_logs)
   getLogs: async (req: any, res: any) => {
     try {
       const { employeeId } = req.query;
       let query = supabase.from('action_logs').select('*').order('timestamp', { ascending: false });
-      if (employeeId) query = query.eq('employee_id', employeeId);
+      if (employeeId) {
+        query = query.eq('employee_id', employeeId);
+      }
       const { data, error } = await query;
       if (error) throw error;
       res.json(data || []);
