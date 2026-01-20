@@ -143,7 +143,7 @@ export const ReportsController = {
           text: `Estimado(a) ${savedPayment.payerName},\n\nSe ha registrado su pago periodo ${MONTH_NAMES[savedPayment.month]} ${savedPayment.year}.\n\nFolio: #${savedPayment.voucherId}\nTotal: $${savedPayment.amount.toLocaleString()}\n\nDetalle desglosado:\n${breakdownText}\n\nGracias por su compromiso.\nAtentamente,\nCondoMaster ERP Cloud.`
         };
 
-        transporter.sendMail(mailOptions).catch(e => console.error("❌ Error SMTP:", e));
+        transporter.sendMail(mailOptions).catch((e: Error) => console.error("❌ Error SMTP:", e.message));
       }
 
       res.json(savedPayment);
